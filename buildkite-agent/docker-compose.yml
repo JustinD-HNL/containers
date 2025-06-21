@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  buildkite-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: buildkite-agent:latest
+    container_name: buildkite-agent
+    restart: unless-stopped
+    
+    # Environment variables
+    environment:
+      # REQUIRED: Set your Buildkite agent token
+      - BUILDKITE_AGENT_TOKEN=${BUILDKITE_AGENT_TOKEN}
+      
+      # OPTIONAL: Customize these as needed
+      - BUILDKITE_AGENT_NAME=${BUILDKITE_AGENT_NAME:-buildkite-agent-docker}
+      - BUILDKITE_AGENT_TAGS=${BUILDKITE_AGENT_TAGS:-queue=default,os=linux,docker=true,environment=production}
+      - BUILDKITE_AGENT_PRIORITY=${BUILDKITE_AGENT_PRIORITY:-}
+      - BUILDKITE_BUILD_PATH=/buildkite/builds
+    
+    # Volumes
+    volumes:
+      # Docker socket for Docker-in-Docker
+      - /var/run/docker.sock:/var/run/docker.sock
+      
+      # Persistent build directory
+      - buildkite-builds:/buildkite/builds
+      
+      # SSH keys (optional - uncomment if you need SSH access)
+      # - ~/.ssh:/home/buildkite-agent/.ssh:ro
+      
+      # Git credentials (optional - uncomment if needed)
+      # - ~/.gitconfig:/home/buildkite-agent/.gitconfig:ro
+      
+      # Custom hooks (optional)
+      # - ./custom-hooks:/buildkite/hooks:ro
+      
+      # Docker config (optional - for private registries)
+      # - ~/.docker:/home/buildkite-agent/.docker:ro
+    
+    # Security
+    user: "1000:1000"
+    
+    # Uncomment if you need privileged mode (for Docker-in-Docker without socket)
+    # privileged: true
+    
+    # Resource limits (adjust as needed)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "buildkite-agent start"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Multiple agents for scaling
+  buildkite-agent-2:
+    extends:
+      service: buildkite-agent
+    container_name: buildkite-agent-2
+    environment:
+      - BUILDKITE_AGENT_TOKEN=${BUILDKITE_AGENT_TOKEN}
+      - BUILDKITE_AGENT_NAME=${BUILDKITE_AGENT_NAME:-buildkite-agent-docker-2}
+      - BUILDKITE_AGENT_TAGS=${BUILDKITE_AGENT_TAGS:-queue=default,os=linux,docker=true,environment=production}
+    profiles:
+      - multi-agent
+
+volumes:
+  buildkite-builds:
+    driver: local
+
+# Optional: Custom network
+networks:
+  default:
+    name: buildkite-network

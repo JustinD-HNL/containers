@@ -1,0 +1,67 @@
+#!/bin/bash
+# This hook runs before each command in a build step
+
+set -euo pipefail
+
+echo "🚀 Pre-command hook executing for step: ${BUILDKITE_LABEL:-Unknown}"
+
+# Clean up previous builds if requested
+if [[ "${BUILDKITE_CLEAN_CHECKOUT:-false}" == "true" ]]; then
+    echo "🧹 Cleaning checkout directory..."
+    if [ -d "$BUILDKITE_BUILD_CHECKOUT_PATH" ]; then
+        cd "$BUILDKITE_BUILD_CHECKOUT_PATH"
+        git clean -fdx || true
+        git reset --hard HEAD || true
+    fi
+fi
+
+# Set up Docker registry authentication if credentials are provided
+if [ -n "${DOCKER_REGISTRY_URL:-}" ] && [ -n "${DOCKER_REGISTRY_USERNAME:-}" ] && [ -n "${DOCKER_REGISTRY_PASSWORD:-}" ]; then
+    echo "🔐 Authenticating with Docker registry: $DOCKER_REGISTRY_URL"
+    echo "$DOCKER_REGISTRY_PASSWORD" | docker login "$DOCKER_REGISTRY_URL" -u "$DOCKER_REGISTRY_USERNAME" --password-stdin
+fi
+
+# Set up additional registries
+if [ -n "${DOCKER_HUB_USERNAME:-}" ] && [ -n "${DOCKER_HUB_PASSWORD:-}" ]; then
+    echo "🔐 Authenticating with Docker Hub"
+    echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
+fi
+
+# AWS ECR authentication (if AWS credentials are available)
+if command -v aws &> /dev/null && [ -n "${AWS_ACCOUNT_ID:-}" ] && [ -n "${AWS_DEFAULT_REGION:-}" ]; then
+    echo "🔐 Authenticating with AWS ECR"
+    aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | \
+        docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com" || true
+fi
+
+# Google Cloud Container Registry authentication (if gcloud is available)
+if command -v gcloud &> /dev/null && [ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
+    echo "🔐 Authenticating with Google Container Registry"
+    gcloud auth configure-docker --quiet || true
+fi
+
+# Create temporary directories for this build
+export BUILDKITE_TMP_DIR="/tmp/buildkite-${BUILDKITE_BUILD_ID}-${BUILDKITE_STEP_ID}"
+mkdir -p "$BUILDKITE_TMP_DIR"
+echo "📁 Temporary directory: $BUILDKITE_TMP_DIR"
+
+# Display resource usage
+echo "💻 System Resources:"
+echo "   - CPU cores: $(nproc)"
+echo "   - Memory: $(free -h | awk '/^Mem:/ {print $2}')"
+echo "   - Disk space: $(df -h . | awk 'NR==2 {print $4}')"
+echo "   - Load average: $(uptime | awk -F'load average:' '{print $2}')"
+
+# Check Docker daemon status
+if command -v docker &> /dev/null; then
+    if docker info &> /dev/null; then
+        echo "🐳 Docker daemon is running"
+        echo "   - Version: $(docker --version)"
+        echo "   - Images: $(docker images -q | wc -l)"
+        echo "   - Containers: $(docker ps -a -q | wc -l)"
+    else
+        echo "⚠️  Docker daemon is not accessible"
+    fi
+fi
+
+echo "✅ Pre-command hook completed"

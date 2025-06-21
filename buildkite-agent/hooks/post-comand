@@ -1,0 +1,77 @@
+#!/bin/bash
+# This hook runs after each command in a build step
+
+set -euo pipefail
+
+echo "🏁 Post-command hook executing for step: ${BUILDKITE_LABEL:-Unknown}"
+echo "   Exit code: ${BUILDKITE_COMMAND_EXIT_STATUS}"
+
+# Clean up temporary files
+if [ -n "${BUILDKITE_TMP_DIR:-}" ] && [ -d "$BUILDKITE_TMP_DIR" ]; then
+    echo "🧹 Cleaning up temporary directory: $BUILDKITE_TMP_DIR"
+    rm -rf "$BUILDKITE_TMP_DIR" || true
+fi
+
+# Clean up Docker resources if the step failed or if cleanup is requested
+if [ "${BUILDKITE_COMMAND_EXIT_STATUS}" != "0" ] || [ "${BUILDKITE_DOCKER_CLEANUP:-false}" == "true" ]; then
+    if command -v docker &> /dev/null && docker info &> /dev/null; then
+        echo "🐳 Cleaning up Docker resources..."
+        
+        # Remove stopped containers
+        if [ "$(docker ps -aq -f status=exited)" ]; then
+            docker rm $(docker ps -aq -f status=exited) || true
+        fi
+        
+        # Remove dangling images
+        if [ "$(docker images -qf dangling=true)" ]; then
+            docker rmi $(docker images -qf dangling=true) || true
+        fi
+        
+        # Clean up volumes (optional)
+        if [ "${BUILDKITE_DOCKER_CLEANUP_VOLUMES:-false}" == "true" ]; then
+            docker volume prune -f || true
+        fi
+        
+        # Clean up networks (optional)
+        if [ "${BUILDKITE_DOCKER_CLEANUP_NETWORKS:-false}" == "true" ]; then
+            docker network prune -f || true
+        fi
+        
+        echo "   Docker cleanup completed"
+    fi
+fi
+
+# Log resource usage after command
+echo "💻 Post-command System Resources:"
+echo "   - Memory: $(free -h | awk '/^Mem:/ {print $3 "/" $2}')"
+echo "   - Disk space: $(df -h . | awk 'NR==2 {print $3 "/" $2}')"
+
+# Archive logs if the step failed
+if [ "${BUILDKITE_COMMAND_EXIT_STATUS}" != "0" ] && [ "${BUILDKITE_ARCHIVE_LOGS_ON_FAILURE:-true}" == "true" ]; then
+    LOG_ARCHIVE_PATH="/tmp/buildkite-logs-${BUILDKITE_BUILD_ID}-${BUILDKITE_STEP_ID}.tar.gz"
+    echo "📦 Archiving logs due to failure: $LOG_ARCHIVE_PATH"
+    
+    # Create log archive
+    tar -czf "$LOG_ARCHIVE_PATH" \
+        -C /var/log . \
+        --exclude='*.gz' \
+        --exclude='journal' \
+        2>/dev/null || true
+    
+    # Upload as artifact if possible
+    if command -v buildkite-agent &> /dev/null; then
+        buildkite-agent artifact upload "$LOG_ARCHIVE_PATH" || true
+    fi
+fi
+
+# Report step timing
+if [ -n "${BUILDKITE_STEP_START_TIME:-}" ]; then
+    STEP_DURATION=$(($(date +%s) - BUILDKITE_STEP_START_TIME))
+    echo "⏱️  Step duration: ${STEP_DURATION}s"
+fi
+
+if [ "${BUILDKITE_COMMAND_EXIT_STATUS}" == "0" ]; then
+    echo "✅ Post-command hook completed successfully"
+else
+    echo "❌ Post-command hook completed (command failed with exit code ${BUILDKITE_COMMAND_EXIT_STATUS})"
+fi

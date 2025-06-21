@@ -1,0 +1,63 @@
+#!/bin/bash
+# This hook runs before every build step and sets up the environment
+
+set -euo pipefail
+
+echo "🔧 Setting up build environment..."
+
+# Set default environment variables
+export DEBIAN_FRONTEND=noninteractive
+export BUILDKITE_CLEAN_CHECKOUT=${BUILDKITE_CLEAN_CHECKOUT:-false}
+
+# Add common paths
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
+
+# Set timezone if not already set
+export TZ=${TZ:-UTC}
+
+# Docker configuration
+if command -v docker &> /dev/null; then
+    # Enable BuildKit by default
+    export DOCKER_BUILDKIT=1
+    export COMPOSE_DOCKER_CLI_BUILD=1
+    
+    # Set default Docker platform
+    export DOCKER_DEFAULT_PLATFORM=${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
+fi
+
+# Git configuration
+export GIT_TERMINAL_PROMPT=0
+export GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+
+# Common build tools
+export MAKEFLAGS="-j$(nproc)"
+
+# Node.js configuration (if Node.js is installed)
+if command -v node &> /dev/null; then
+    export NODE_ENV=${NODE_ENV:-production}
+    export NPM_CONFIG_CACHE=/tmp/npm-cache
+    mkdir -p "$NPM_CONFIG_CACHE"
+fi
+
+# Python configuration (if Python is installed)
+if command -v python3 &> /dev/null; then
+    export PYTHONUNBUFFERED=1
+    export PYTHONDONTWRITEBYTECODE=1
+    export PIP_CACHE_DIR=/tmp/pip-cache
+    mkdir -p "$PIP_CACHE_DIR"
+fi
+
+# Java configuration (if Java is installed)
+if command -v java &> /dev/null; then
+    export MAVEN_OPTS="${MAVEN_OPTS:--Xmx1g -XX:+TieredCompilation -XX:TieredStopAtLevel=1}"
+    export GRADLE_OPTS="${GRADLE_OPTS:--Xmx1g -XX:+HeapDumpOnOutOfMemoryError}"
+fi
+
+# Build artifact cleanup configuration
+export BUILDKITE_ARTIFACT_UPLOAD_DESTINATION=${BUILDKITE_ARTIFACT_UPLOAD_DESTINATION:-}
+
+echo "✅ Environment setup complete"
+echo "   - Build: $BUILDKITE_BUILD_NUMBER"
+echo "   - Branch: $BUILDKITE_BRANCH"
+echo "   - Commit: $BUILDKITE_COMMIT"
+echo "   - Pipeline: $BUILDKITE_PIPELINE_SLUG"

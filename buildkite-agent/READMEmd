@@ -1,0 +1,417 @@
+# Buildkite Agent Docker Container
+
+A comprehensive Docker setup for running Buildkite agents with Docker-in-Docker support, based on Ubuntu 24.04.
+
+## 🚀 Quick Start
+
+1. **Get your Buildkite agent token** from [your Buildkite organization](https://buildkite.com/organizations)
+2. **Build the container:**
+   ```bash
+   chmod +x build.sh
+   ./build.sh build
+   ```
+3. **Run with your token:**
+   ```bash
+   ./build.sh run --token "your-buildkite-token-here"
+   ```
+
+## 📁 Project Structure
+
+```
+.
+├── Dockerfile                 # Main container definition
+├── docker-compose.yml        # Docker Compose configuration
+├── buildkite-agent.cfg       # Agent configuration template
+├── entrypoint.sh             # Container startup script
+├── build.sh                  # Build and management script
+├── .env.template             # Environment variables template
+├── hooks/                    # Buildkite hooks directory
+│   ├── environment           # Environment setup hook
+│   ├── pre-command           # Pre-command hook
+│   └── post-command          # Post-command hook
+└── README.md                 # This file
+```
+
+## 🔧 Configuration
+
+### Environment Variables
+
+Copy `.env.template` to `.env` and configure:
+
+```bash
+cp .env.template .env
+# Edit .env with your values
+```
+
+#### Required Variables
+
+| Variable | Description |
+|----------|-------------|
+| `BUILDKITE_AGENT_TOKEN` | Your Buildkite agent token |
+
+#### Optional Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BUILDKITE_AGENT_NAME` | `buildkite-agent-$(hostname)` | Agent name |
+| `BUILDKITE_AGENT_TAGS` | `queue=default,os=linux,docker=true` | Agent tags |
+| `BUILDKITE_AGENT_PRIORITY` | - | Agent priority |
+| `BUILDKITE_BUILD_PATH` | `/buildkite/builds` | Build directory |
+
+## 🏗️ Building
+
+### Using the Build Script
+
+```bash
+# Basic build
+./build.sh build
+
+# Build without cache
+./build.sh build --no-cache
+
+# Build with custom tag
+./build.sh build --tag v1.0.0
+```
+
+### Using Docker Directly
+
+```bash
+docker build -t buildkite-agent:latest .
+```
+
+### Using Docker Compose
+
+```bash
+docker-compose build
+```
+
+## 🚀 Running
+
+### Using the Build Script
+
+```bash
+# Run with token
+./build.sh run --token "your-token"
+
+# Run with custom configuration
+./build.sh run \
+  --token "your-token" \
+  --agent-name "my-agent" \
+  --agent-tags "queue=deploy,os=linux,docker=true"
+
+# Run in privileged mode (for Docker-in-Docker without socket)
+./build.sh run --token "your-token" --privileged
+```
+
+### Using Docker Directly
+
+```bash
+docker run -d \
+  --name buildkite-agent \
+  --restart unless-stopped \
+  -e BUILDKITE_AGENT_TOKEN="your-token" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v buildkite-builds:/buildkite/builds \
+  buildkite-agent:latest
+```
+
+### Using Docker Compose
+
+```bash
+# Set your token in .env file first
+echo "BUILDKITE_AGENT_TOKEN=your-token" > .env
+
+# Start the agent
+docker-compose up -d
+
+# Start multiple agents
+docker-compose --profile multi-agent up -d
+```
+
+## 📊 Management
+
+### View Logs
+
+```bash
+# Using build script
+./build.sh logs
+
+# Using Docker directly
+docker logs -f buildkite-agent
+
+# Using Docker Compose
+docker-compose logs -f
+```
+
+### Open Shell
+
+```bash
+# Using build script
+./build.sh shell
+
+# Using Docker directly
+docker exec -it buildkite-agent /bin/bash
+```
+
+### Stop Agent
+
+```bash
+# Using build script
+./build.sh stop
+
+# Using Docker Compose
+docker-compose down
+```
+
+### Clean Up
+
+```bash
+# Using build script (removes containers, images, optionally volumes)
+./build.sh clean
+
+# Using Docker Compose
+docker-compose down -v
+```
+
+## 🔌 Features
+
+### Docker-in-Docker Support
+
+The container includes Docker CE and mounts the Docker socket for seamless container operations:
+
+- **Socket mounting** (default): `/var/run/docker.sock:/var/run/docker.sock`
+- **Privileged mode** (alternative): `--privileged` flag
+
+### Included Tools
+
+- **Git** - Version control
+- **Docker CE** - Container operations
+- **Build tools** - GCC, make, etc.
+- **SSH client** - For Git operations
+- **jq** - JSON processing
+- **curl/wget** - HTTP clients
+
+### Hooks System
+
+The container includes comprehensive hooks:
+
+#### Environment Hook (`hooks/environment`)
+- Sets up build environment variables
+- Configures common tools (Docker, Git, Node.js, Python, Java)
+- Sets resource optimization flags
+
+#### Pre-command Hook (`hooks/pre-command`)
+- Authenticates with Docker registries
+- Sets up temporary directories
+- Displays system resources
+- Performs cleanup if requested
+
+#### Post-command Hook (`hooks/post-command`)
+- Cleans up temporary files
+- Removes Docker resources on failure
+- Archives logs on failure
+- Reports step timing
+
+### Security Features
+
+- **Non-root user**: Runs as `buildkite-agent` user (UID 1000)
+- **Sudo access**: Available for privileged operations
+- **SSH agent**: Automatic SSH key loading
+- **Docker group**: Agent user added to docker group
+
+## 🔧 Customization
+
+### Adding Custom Tools
+
+Edit the `Dockerfile` to add additional tools:
+
+```dockerfile
+# Add Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs
+
+# Add Python packages
+RUN apt-get update && apt-get install -y python3-pip && \
+    pip3 install requests boto3
+```
+
+### Custom Hooks
+
+Add your own hooks to the `hooks/` directory:
+
+```bash
+# Create a custom hook
+cat > hooks/pre-checkout << 'EOF'
+#!/bin/bash
+echo "Custom pre-checkout hook"
+# Your custom logic here
+EOF
+
+chmod +x hooks/pre-checkout
+```
+
+### Registry Authentication
+
+#### Docker Hub
+```bash
+export DOCKER_HUB_USERNAME="your-username"
+export DOCKER_HUB_PASSWORD="your-password"
+```
+
+#### AWS ECR
+```bash
+export AWS_ACCOUNT_ID="123456789012"
+export AWS_DEFAULT_REGION="us-east-1"
+# Ensure AWS credentials are available
+```
+
+#### Google Container Registry
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+# Mount the credentials file into the container
+```
+
+## 🐳 Docker Compose Profiles
+
+### Single Agent (default)
+```bash
+docker-compose up -d
+```
+
+### Multiple Agents
+```bash
+docker-compose --profile multi-agent up -d
+```
+
+### Custom Configuration
+```yaml
+# docker-compose.override.yml
+version: '3.8'
+services:
+  buildkite-agent:
+    environment:
+      - BUILDKITE_AGENT_TAGS=queue=custom,specialty=true
+    volumes:
+      - ./custom-hooks:/buildkite/hooks:ro
+```
+
+## 📈 Monitoring
+
+### Health Checks
+
+The container includes built-in health checks:
+
+```bash
+# Check health status
+docker inspect --format='{{.State.Health.Status}}' buildkite-agent
+
+# View health check logs
+docker inspect --format='{{range .State.Health.Log}}{{.Output}}{{end}}' buildkite-agent
+```
+
+### Resource Monitoring
+
+```bash
+# View resource usage
+docker stats buildkite-agent
+
+# Check logs for resource information
+docker logs buildkite-agent | grep "System Resources"
+```
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+#### Docker Socket Permission Denied
+```bash
+# Ensure docker group exists and agent user is member
+docker exec buildkite-agent groups buildkite-agent
+
+# Check socket permissions
+ls -la /var/run/docker.sock
+```
+
+#### Agent Not Connecting
+```bash
+# Check token validity
+docker logs buildkite-agent | grep -i token
+
+# Verify network connectivity
+docker exec buildkite-agent curl -I https://api.buildkite.com
+```
+
+#### Build Failures
+```bash
+# Check available disk space
+docker exec buildkite-agent df -h
+
+# View detailed logs
+docker logs buildkite-agent
+
+# Access container for debugging
+./build.sh shell
+```
+
+### Debug Mode
+
+Enable debug logging:
+
+```bash
+# Temporary debug mode
+docker run -e BUILDKITE_AGENT_DEBUG=true ...
+
+# Or edit buildkite-agent.cfg
+debug=true
+```
+
+## 🔒 Security Considerations
+
+1. **Token Management**: Store tokens securely, use environment variables
+2. **Docker Socket**: Mounting gives full Docker access - consider rootless Docker
+3. **Privileged Mode**: Only use when necessary
+4. **Network Security**: Consider running on isolated networks
+5. **Image Updates**: Regularly update base images and dependencies
+
+## 📝 Build Script Commands
+
+| Command | Description |
+|---------|-------------|
+| `build` | Build the Docker image |
+| `run` | Run a container instance |
+| `stop` | Stop running containers |
+| `clean` | Clean up containers and images |
+| `push` | Push image to registry |
+| `logs` | Show container logs |
+| `shell` | Open shell in running container |
+
+### Build Script Options
+
+| Option | Description |
+|--------|-------------|
+| `-t, --tag TAG` | Set image tag |
+| `-n, --name NAME` | Set container name |
+| `-k, --token TOKEN` | Set Buildkite agent token |
+| `--agent-name NAME` | Set agent name |
+| `--agent-tags TAGS` | Set agent tags |
+| `--no-cache` | Build without cache |
+| `--privileged` | Run in privileged mode |
+| `--dry-run` | Show commands without executing |
+
+## 📚 Resources
+
+- [Buildkite Agent Documentation](https://buildkite.com/docs/agent/v3)
+- [Docker Documentation](https://docs.docker.com/)
+- [Ubuntu 24.04 Documentation](https://ubuntu.com/server/docs)
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## 📄 License
+
+This project is provided as-is for educational and operational purposes.
